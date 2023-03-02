@@ -30,6 +30,7 @@ const val CHANNEL_ID = "VERBOSE_NOTIFICATION"
 const val NOTIFICATION_ID = 1
 
 // The name of the image manipulation work
+// Is the one which controls the whole chain of works in WorkManager
 const val IMAGE_MANIPULATION_WORK_NAME = "image_manipulation_work"
 
 // Other keys

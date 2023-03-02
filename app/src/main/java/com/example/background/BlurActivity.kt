@@ -16,10 +16,14 @@
 
 package com.example.background
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Observer
 import com.example.background.databinding.ActivityBlurBinding
 
 class BlurActivity : AppCompatActivity() {
@@ -37,6 +41,49 @@ class BlurActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.goButton.setOnClickListener { viewModel.applyBlur(blurLevel) }
+
+        binding.seeFileButton.setOnClickListener {
+            Log.d("BlurActivity", "Dentro del click")
+            viewModel.outputUri?.let { currentUri ->
+                Log.d("BlurActivity", "No es nulo")
+                val intent = Intent(Intent.ACTION_VIEW, currentUri)
+                try {
+                    startActivity(intent)
+                } catch (ex: ActivityNotFoundException) {
+                    ex.printStackTrace()
+                }
+            }
+        }
+
+        binding.cancelButton.setOnClickListener {
+            viewModel.cancelWork()
+        }
+
+        viewModel.outputWorkOne.observe(this) {
+            workInfo ->
+                workInfo?.let {
+                    if(workInfo.state.isFinished){
+                        showWorkFinished()
+
+                        val outputData= workInfo.outputData.getString( KEY_IMAGE_URI )
+                        if(!outputData.isNullOrEmpty()){
+                            Log.d("BlurActivity", "Data: $outputData")
+                            viewModel.setOutputUri(outputData)
+                            binding.seeFileButton.visibility= View.VISIBLE
+                        }
+                    }else
+                        showWorkInProgress()
+                }
+        }
+
+        viewModel.outputWorkInfos.observe(this, Observer {
+            it?.let{
+                if (it.isEmpty()){
+                    return@Observer
+                }
+                viewModel.setOutputWorkValue(it[0])
+            }
+        })
     }
 
     /**

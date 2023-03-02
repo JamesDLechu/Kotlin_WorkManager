@@ -20,8 +20,15 @@ import android.app.Application
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Transformations
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.work.*
+import com.example.background.workers.BlurWorker
+import com.example.background.workers.CleanUpWorker
+import com.example.background.workers.SaveImageToFileWorker
 
 
 class BlurViewModel(application: Application) : ViewModel() {
@@ -29,14 +36,63 @@ class BlurViewModel(application: Application) : ViewModel() {
     internal var imageUri: Uri? = null
     internal var outputUri: Uri? = null
 
+    private val workManager= WorkManager.getInstance(application)
+
+    internal val outputWorkInfos: LiveData<List<WorkInfo>>
+
+    private val _outputWorkOne= MutableLiveData<WorkInfo>()
+    val outputWorkOne: LiveData<WorkInfo>
+        get() = _outputWorkOne
+
+    fun setOutputWorkValue(info: WorkInfo) {
+        _outputWorkOne.value= info
+    }
+
     init {
         imageUri = getImageUri(application.applicationContext)
+        // This transformation makes sure that whenever the current work Id changes the WorkInfo
+        // the UI is listening to changes
+        outputWorkInfos = workManager.getWorkInfosByTagLiveData(TAG_OUTPUT)
     }
+
     /**
      * Create the WorkRequest to apply the blur and save the resulting image
      * @param blurLevel The amount to blur the image
      */
-    internal fun applyBlur(blurLevel: Int) {}
+    internal fun applyBlur(blurLevel: Int) {
+        val constraints= Constraints.Builder()
+            .setRequiresCharging(true)
+            .build()
+
+        val cleanUpRequest= OneTimeWorkRequestBuilder<CleanUpWorker>()
+            .build()
+
+        var continuation= workManager.beginUniqueWork(
+            IMAGE_MANIPULATION_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            cleanUpRequest
+        )
+
+        for( i in 0 until blurLevel){
+            val blurRequest= OneTimeWorkRequestBuilder<BlurWorker>()
+
+            if (i == 0)
+                blurRequest.setInputData(createInputDataForUri())
+
+            continuation= continuation.then(blurRequest.build())
+        }
+
+        val saveImageRequest= OneTimeWorkRequestBuilder<SaveImageToFileWorker>()
+            // Se pone aquí para que sea el último paso el que aplique la restricción
+            // deteniendo el Worker hasta que se cumpla nuevamente
+            .setConstraints(constraints)
+            .addTag(TAG_OUTPUT)
+            .build()
+
+        continuation= continuation.then(saveImageRequest)
+
+        continuation.enqueue()
+    }
 
     private fun uriOrNull(uriString: String?): Uri? {
         return if (!uriString.isNullOrEmpty()) {
@@ -61,6 +117,18 @@ class BlurViewModel(application: Application) : ViewModel() {
 
     internal fun setOutputUri(outputImageUri: String?) {
         outputUri = uriOrNull(outputImageUri)
+    }
+
+    private fun createInputDataForUri(): Data {
+        val builder= Data.Builder()
+        imageUri?.let {
+            builder.putString(KEY_IMAGE_URI, imageUri.toString())
+        }
+        return builder.build()
+    }
+
+    internal fun cancelWork() {
+        workManager.cancelUniqueWork(IMAGE_MANIPULATION_WORK_NAME)
     }
 
     class BlurViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
